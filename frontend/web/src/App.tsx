@@ -1,63 +1,56 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import '@rainbow-me/rainbowkit/styles.css';
-import React, { JSX, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { getContractReadOnly, getContractWithSigner } from "./components/useContract";
 import "./App.css";
 import { useAccount } from 'wagmi';
 import { useFhevm, useEncrypt, useDecrypt } from '../fhevm-sdk/src';
-import { ethers } from 'ethers';
 
 interface VoteData {
-  id: number;
+  id: string;
   title: string;
-  optionA: string;
-  optionB: string;
-  timestamp: number;
-  creator: string;
-  encryptedVotes: string;
+  option1: string;
+  option2: string;
+  option3: string;
+  encryptedCount: number;
   publicValue1: number;
   publicValue2: number;
+  timestamp: number;
+  creator: string;
   isVerified?: boolean;
   decryptedValue?: number;
-}
-
-interface VoteStats {
-  totalVotes: number;
-  optionACount: number;
-  optionBCount: number;
-  participationRate: number;
-  verifiedVotes: number;
 }
 
 const App: React.FC = () => {
   const { address, isConnected } = useAccount();
   const [loading, setLoading] = useState(true);
   const [votes, setVotes] = useState<VoteData[]>([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creatingVote, setCreatingVote] = useState(false);
   const [transactionStatus, setTransactionStatus] = useState<{ visible: boolean; status: "pending" | "success" | "error"; message: string; }>({ 
     visible: false, 
-    status: "pending" as const, 
+    status: "pending", 
     message: "" 
   });
-  const [newVoteData, setNewVoteData] = useState({ title: "", optionA: "", optionB: "", votes: "" });
+  const [newVoteData, setNewVoteData] = useState({ 
+    title: "", 
+    option1: "", 
+    option2: "", 
+    option3: "" 
+  });
   const [selectedVote, setSelectedVote] = useState<VoteData | null>(null);
-  const [decryptedCount, setDecryptedCount] = useState<number | null>(null);
-  const [isDecrypting, setIsDecrypting] = useState(false);
   const [contractAddress, setContractAddress] = useState("");
   const [fhevmInitializing, setFhevmInitializing] = useState(false);
+  const [activeTab, setActiveTab] = useState("votes");
   const [searchTerm, setSearchTerm] = useState("");
-  const [stats, setStats] = useState<VoteStats>({ totalVotes: 0, optionACount: 0, optionBCount: 0, participationRate: 0, verifiedVotes: 0 });
 
   const { status, initialize, isInitialized } = useFhevm();
-  const { encrypt, isEncrypting} = useEncrypt();
+  const { encrypt, isEncrypting } = useEncrypt();
   const { verifyDecryption, isDecrypting: fheIsDecrypting } = useDecrypt();
 
   useEffect(() => {
     const initFhevmAfterConnection = async () => {
-      if (!isConnected) return;
-      if (isInitialized || fhevmInitializing) return;
+      if (!isConnected || isInitialized || fhevmInitializing) return;
       
       try {
         setFhevmInitializing(true);
@@ -66,7 +59,7 @@ const App: React.FC = () => {
         setTransactionStatus({ 
           visible: true, 
           status: "error", 
-          message: "FHEVM initialization failed." 
+          message: "FHEVM初始化失败" 
         });
         setTimeout(() => setTransactionStatus({ visible: false, status: "pending", message: "" }), 3000);
       } finally {
@@ -85,11 +78,11 @@ const App: React.FC = () => {
       }
       
       try {
-        await loadData();
+        await loadVotes();
         const contract = await getContractReadOnly();
         if (contract) setContractAddress(await contract.getAddress());
       } catch (error) {
-        console.error('Failed to load data:', error);
+        console.error('加载数据失败:', error);
       } finally {
         setLoading(false);
       }
@@ -98,30 +91,9 @@ const App: React.FC = () => {
     loadDataAndContract();
   }, [isConnected]);
 
-  useEffect(() => {
-    calculateStats();
-  }, [votes]);
-
-  const calculateStats = () => {
-    const total = votes.length;
-    const verified = votes.filter(v => v.isVerified).length;
-    const optionA = votes.reduce((sum, v) => sum + (v.publicValue1 || 0), 0);
-    const optionB = votes.reduce((sum, v) => sum + (v.publicValue2 || 0), 0);
-    const participation = total > 0 ? Math.round((optionA + optionB) / total * 100) : 0;
-    
-    setStats({
-      totalVotes: total,
-      optionACount: optionA,
-      optionBCount: optionB,
-      participationRate: participation,
-      verifiedVotes: verified
-    });
-  };
-
-  const loadData = async () => {
+  const loadVotes = async () => {
     if (!isConnected) return;
     
-    setIsRefreshing(true);
     try {
       const contract = await getContractReadOnly();
       if (!contract) return;
@@ -133,76 +105,75 @@ const App: React.FC = () => {
         try {
           const businessData = await contract.getBusinessData(businessId);
           votesList.push({
-            id: parseInt(businessId.replace('vote-', '')) || Date.now(),
+            id: businessId,
             title: businessData.name,
-            optionA: "Option A",
-            optionB: "Option B",
-            timestamp: Number(businessData.timestamp),
-            creator: businessData.creator,
-            encryptedVotes: businessId,
+            option1: "选项A",
+            option2: "选项B", 
+            option3: "选项C",
+            encryptedCount: 0,
             publicValue1: Number(businessData.publicValue1) || 0,
             publicValue2: Number(businessData.publicValue2) || 0,
+            timestamp: Number(businessData.timestamp),
+            creator: businessData.creator,
             isVerified: businessData.isVerified,
             decryptedValue: Number(businessData.decryptedValue) || 0
           });
         } catch (e) {
-          console.error('Error loading vote data:', e);
+          console.error('加载投票数据错误:', e);
         }
       }
       
       setVotes(votesList);
     } catch (e) {
-      setTransactionStatus({ visible: true, status: "error", message: "Failed to load data" });
+      setTransactionStatus({ visible: true, status: "error", message: "加载数据失败" });
       setTimeout(() => setTransactionStatus({ visible: false, status: "pending", message: "" }), 3000);
-    } finally { 
-      setIsRefreshing(false); 
     }
   };
 
   const createVote = async () => {
     if (!isConnected || !address) { 
-      setTransactionStatus({ visible: true, status: "error", message: "Please connect wallet first" });
+      setTransactionStatus({ visible: true, status: "error", message: "请先连接钱包" });
       setTimeout(() => setTransactionStatus({ visible: false, status: "pending", message: "" }), 3000);
       return; 
     }
     
     setCreatingVote(true);
-    setTransactionStatus({ visible: true, status: "pending", message: "Creating vote with FHE encryption..." });
+    setTransactionStatus({ visible: true, status: "pending", message: "创建加密投票中..." });
     
     try {
       const contract = await getContractWithSigner();
-      if (!contract) throw new Error("Failed to get contract with signer");
+      if (!contract) throw new Error("获取合约失败");
       
-      const voteCount = parseInt(newVoteData.votes) || 0;
+      const voteValue = 1;
       const businessId = `vote-${Date.now()}`;
       
-      const encryptedResult = await encrypt(contractAddress, address, voteCount);
+      const encryptedResult = await encrypt(contractAddress, address, voteValue);
       
       const tx = await contract.createBusinessData(
         businessId,
         newVoteData.title,
         encryptedResult.encryptedData,
         encryptedResult.proof,
-        parseInt(newVoteData.votes) || 0,
         0,
-        "Kids Voting Session"
+        0,
+        `投票选项: ${newVoteData.option1}, ${newVoteData.option2}, ${newVoteData.option3}`
       );
       
-      setTransactionStatus({ visible: true, status: "pending", message: "Waiting for transaction..." });
+      setTransactionStatus({ visible: true, status: "pending", message: "等待交易确认..." });
       await tx.wait();
       
-      setTransactionStatus({ visible: true, status: "success", message: "Vote created successfully!" });
+      setTransactionStatus({ visible: true, status: "success", message: "投票创建成功!" });
       setTimeout(() => {
         setTransactionStatus({ visible: false, status: "pending", message: "" });
       }, 2000);
       
-      await loadData();
+      await loadVotes();
       setShowCreateModal(false);
-      setNewVoteData({ title: "", optionA: "", optionB: "", votes: "" });
+      setNewVoteData({ title: "", option1: "", option2: "", option3: "" });
     } catch (e: any) {
       const errorMessage = e.message?.includes("user rejected transaction") 
-        ? "Transaction rejected" 
-        : "Submission failed: " + (e.message || "Unknown error");
+        ? "用户取消了交易" 
+        : "提交失败: " + (e.message || "未知错误");
       setTransactionStatus({ visible: true, status: "error", message: errorMessage });
       setTimeout(() => setTransactionStatus({ visible: false, status: "pending", message: "" }), 3000);
     } finally { 
@@ -210,14 +181,13 @@ const App: React.FC = () => {
     }
   };
 
-  const decryptData = async (businessId: string): Promise<number | null> => {
+  const decryptVote = async (businessId: string): Promise<number | null> => {
     if (!isConnected || !address) { 
-      setTransactionStatus({ visible: true, status: "error", message: "Please connect wallet first" });
+      setTransactionStatus({ visible: true, status: "error", message: "请先连接钱包" });
       setTimeout(() => setTransactionStatus({ visible: false, status: "pending", message: "" }), 3000);
       return null; 
     }
     
-    setIsDecrypting(true);
     try {
       const contractRead = await getContractReadOnly();
       if (!contractRead) return null;
@@ -225,16 +195,14 @@ const App: React.FC = () => {
       const businessData = await contractRead.getBusinessData(businessId);
       if (businessData.isVerified) {
         const storedValue = Number(businessData.decryptedValue) || 0;
-        
         setTransactionStatus({ 
           visible: true, 
           status: "success", 
-          message: "Data already verified" 
+          message: "数据已在链上验证" 
         });
         setTimeout(() => {
           setTransactionStatus({ visible: false, status: "pending", message: "" });
         }, 2000);
-        
         return storedValue;
       }
       
@@ -250,13 +218,13 @@ const App: React.FC = () => {
           contractWrite.verifyDecryption(businessId, abiEncodedClearValues, decryptionProof)
       );
       
-      setTransactionStatus({ visible: true, status: "pending", message: "Verifying decryption..." });
+      setTransactionStatus({ visible: true, status: "pending", message: "链上验证解密中..." });
       
       const clearValue = result.decryptionResult.clearValues[encryptedValueHandle];
       
-      await loadData();
+      await loadVotes();
       
-      setTransactionStatus({ visible: true, status: "success", message: "Data decrypted successfully!" });
+      setTransactionStatus({ visible: true, status: "success", message: "数据解密验证成功!" });
       setTimeout(() => {
         setTransactionStatus({ visible: false, status: "pending", message: "" });
       }, 2000);
@@ -268,44 +236,47 @@ const App: React.FC = () => {
         setTransactionStatus({ 
           visible: true, 
           status: "success", 
-          message: "Data is already verified" 
+          message: "数据已在链上验证" 
         });
         setTimeout(() => {
           setTransactionStatus({ visible: false, status: "pending", message: "" });
         }, 2000);
-        
-        await loadData();
+        await loadVotes();
         return null;
       }
       
       setTransactionStatus({ 
         visible: true, 
         status: "error", 
-        message: "Decryption failed: " + (e.message || "Unknown error") 
+        message: "解密失败: " + (e.message || "未知错误") 
       });
       setTimeout(() => setTransactionStatus({ visible: false, status: "pending", message: "" }), 3000);
       return null; 
-    } finally { 
-      setIsDecrypting(false); 
     }
   };
 
-  const callIsAvailable = async () => {
+  const testAvailability = async () => {
     try {
       const contract = await getContractReadOnly();
       if (!contract) return;
       
-      const result = await contract.isAvailable();
+      const isAvailable = await contract.isAvailable();
+      if (isAvailable) {
+        setTransactionStatus({ 
+          visible: true, 
+          status: "success", 
+          message: "合约可用性检查成功!" 
+        });
+        setTimeout(() => {
+          setTransactionStatus({ visible: false, status: "pending", message: "" });
+        }, 2000);
+      }
+    } catch (e) {
       setTransactionStatus({ 
         visible: true, 
-        status: "success", 
-        message: "Contract is available!" 
+        status: "error", 
+        message: "可用性检查失败" 
       });
-      setTimeout(() => {
-        setTransactionStatus({ visible: false, status: "pending", message: "" });
-      }, 2000);
-    } catch (e) {
-      setTransactionStatus({ visible: true, status: "error", message: "Contract call failed" });
       setTimeout(() => setTransactionStatus({ visible: false, status: "pending", message: "" }), 3000);
     }
   };
@@ -315,72 +286,12 @@ const App: React.FC = () => {
     vote.creator.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const renderStats = () => {
-    return (
-      <div className="stats-grid">
-        <div className="stat-card mint">
-          <h3>Total Votes</h3>
-          <div className="stat-value">{stats.totalVotes}</div>
-          <div className="stat-label">Active Sessions</div>
-        </div>
-        
-        <div className="stat-card cream">
-          <h3>Participation</h3>
-          <div className="stat-value">{stats.participationRate}%</div>
-          <div className="stat-label">Rate</div>
-        </div>
-        
-        <div className="stat-card pink">
-          <h3>Option A</h3>
-          <div className="stat-value">{stats.optionACount}</div>
-          <div className="stat-label">Votes</div>
-        </div>
-        
-        <div className="stat-card blue">
-          <h3>Verified</h3>
-          <div className="stat-value">{stats.verifiedVotes}</div>
-          <div className="stat-label">Sessions</div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderFHEProcess = () => {
-    return (
-      <div className="fhe-process">
-        <div className="process-step">
-          <div className="step-number">1</div>
-          <div className="step-content">
-            <h4>Vote Encryption</h4>
-            <p>Votes encrypted with FHE technology</p>
-          </div>
-        </div>
-        <div className="process-arrow">→</div>
-        <div className="process-step">
-          <div className="step-number">2</div>
-          <div className="step-content">
-            <h4>Secure Storage</h4>
-            <p>Encrypted data stored on blockchain</p>
-          </div>
-        </div>
-        <div className="process-arrow">→</div>
-        <div className="process-step">
-          <div className="step-number">3</div>
-          <div className="step-content">
-            <h4>Homomorphic Counting</h4>
-            <p>Votes counted without decryption</p>
-          </div>
-        </div>
-        <div className="process-arrow">→</div>
-        <div className="process-step">
-          <div className="step-number">4</div>
-          <div className="step-content">
-            <h4>Result Verification</h4>
-            <p>Final results verified on-chain</p>
-          </div>
-        </div>
-      </div>
-    );
+  const stats = {
+    totalVotes: votes.length,
+    verifiedVotes: votes.filter(v => v.isVerified).length,
+    todayVotes: votes.filter(v => 
+      new Date(v.timestamp * 1000).toDateString() === new Date().toDateString()
+    ).length
   };
 
   if (!isConnected) {
@@ -388,31 +299,31 @@ const App: React.FC = () => {
       <div className="app-container">
         <header className="app-header">
           <div className="logo">
-            <h1>🎮 KidVote FHE</h1>
-            <p>Secure Voting for Kids</p>
+            <h1>🎮 兒童隱私投票</h1>
+            <p>FHE加密保護的兒童投票系統</p>
           </div>
           <div className="header-actions">
             <ConnectButton accountStatus="address" chainStatus="icon" showBalance={false}/>
           </div>
         </header>
         
-        <div className="welcome-section">
-          <div className="welcome-content">
-            <div className="welcome-icon">🔐</div>
-            <h2>Welcome to KidVote!</h2>
-            <p>Connect your wallet to start secure, encrypted voting sessions for children.</p>
-            <div className="features-list">
-              <div className="feature">
-                <span>🎯</span>
-                <p>Child-friendly interface</p>
+        <div className="connection-prompt">
+          <div className="connection-content">
+            <div className="connection-icon">🔐</div>
+            <h2>連接錢包開始投票</h2>
+            <p>請連接您的錢包來使用FHE加密的兒童隱私投票系統</p>
+            <div className="connection-steps">
+              <div className="step">
+                <span>1</span>
+                <p>點擊上方按鈕連接錢包</p>
               </div>
-              <div className="feature">
-                <span>🔒</span>
-                <p>FHE encrypted voting</p>
+              <div className="step">
+                <span>2</span>
+                <p>FHE系統將自動初始化</p>
               </div>
-              <div className="feature">
-                <span>👶</span>
-                <p>No peer pressure</p>
+              <div className="step">
+                <span>3</span>
+                <p>開始創建和參與加密投票</p>
               </div>
             </div>
           </div>
@@ -424,17 +335,17 @@ const App: React.FC = () => {
   if (!isInitialized || fhevmInitializing) {
     return (
       <div className="loading-screen">
-        <div className="loading-spinner"></div>
-        <p>Initializing FHE System...</p>
-        <p className="loading-note">Getting ready for secure voting</p>
+        <div className="fhe-spinner"></div>
+        <p>初始化FHE加密系統...</p>
+        <p className="loading-note">請稍候片刻</p>
       </div>
     );
   }
 
   if (loading) return (
     <div className="loading-screen">
-      <div className="loading-spinner"></div>
-      <p>Loading voting sessions...</p>
+      <div className="fhe-spinner"></div>
+      <p>加載加密投票系統...</p>
     </div>
   );
 
@@ -442,91 +353,195 @@ const App: React.FC = () => {
     <div className="app-container">
       <header className="app-header">
         <div className="logo">
-          <h1>🎮 KidVote FHE</h1>
-          <p>Secure Encrypted Voting</p>
+          <h1>🎮 兒童隱私投票</h1>
+          <p>FHE全同態加密保護 | 無壓力投票體驗</p>
         </div>
         
         <div className="header-actions">
-          <button onClick={callIsAvailable} className="test-btn">
-            Test Contract
+          <button onClick={testAvailability} className="test-btn">
+            🔍 檢查合約
           </button>
           <button 
             onClick={() => setShowCreateModal(true)} 
             className="create-btn"
           >
-            + New Vote
+            ✨ 創建投票
           </button>
           <ConnectButton accountStatus="address" chainStatus="icon" showBalance={false}/>
         </div>
       </header>
       
-      <div className="main-content">
-        <div className="dashboard-section">
-          <h2>📊 Voting Statistics</h2>
-          {renderStats()}
-          
-          <div className="fhe-info-panel">
-            <h3>🔐 FHE Voting Process</h3>
-            {renderFHEProcess()}
-          </div>
-        </div>
-        
-        <div className="votes-section">
-          <div className="section-header">
-            <h2>🗳️ Active Voting Sessions</h2>
-            <div className="header-controls">
-              <div className="search-box">
+      <nav className="app-nav">
+        <button 
+          className={`nav-btn ${activeTab === "votes" ? "active" : ""}`}
+          onClick={() => setActiveTab("votes")}
+        >
+          🗳️ 投票列表
+        </button>
+        <button 
+          className={`nav-btn ${activeTab === "stats" ? "active" : ""}`}
+          onClick={() => setActiveTab("stats")}
+        >
+          📊 數據統計
+        </button>
+        <button 
+          className={`nav-btn ${activeTab === "about" ? "active" : ""}`}
+          onClick={() => setActiveTab("about")}
+        >
+          ℹ️ 項目介紹
+        </button>
+        <button 
+          className={`nav-btn ${activeTab === "faq" ? "active" : ""}`}
+          onClick={() => setActiveTab("faq")}
+        >
+          ❓ 常見問題
+        </button>
+      </nav>
+      
+      <main className="main-content">
+        {activeTab === "votes" && (
+          <div className="votes-section">
+            <div className="section-header">
+              <h2>🗳️ 當前投票活動</h2>
+              <div className="search-bar">
                 <input 
                   type="text" 
-                  placeholder="Search votes..." 
+                  placeholder="🔍 搜索投票標題或創建者..." 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <button 
-                onClick={loadData} 
-                className="refresh-btn" 
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? "🔄" : "↻"}
-              </button>
+            </div>
+            
+            <div className="votes-grid">
+              {filteredVotes.length === 0 ? (
+                <div className="no-votes">
+                  <p>暫無投票活動</p>
+                  <button 
+                    className="create-btn" 
+                    onClick={() => setShowCreateModal(true)}
+                  >
+                    創建第一個投票
+                  </button>
+                </div>
+              ) : filteredVotes.map((vote, index) => (
+                <div 
+                  className={`vote-card ${vote.isVerified ? "verified" : ""}`}
+                  key={index}
+                  onClick={() => setSelectedVote(vote)}
+                >
+                  <div className="card-header">
+                    <h3>{vote.title}</h3>
+                    <span className={`status ${vote.isVerified ? "verified" : "pending"}`}>
+                      {vote.isVerified ? "✅ 已驗證" : "🔒 待驗證"}
+                    </span>
+                  </div>
+                  <div className="card-content">
+                    <div className="vote-options">
+                      <span>A: {vote.option1}</span>
+                      <span>B: {vote.option2}</span>
+                      <span>C: {vote.option3}</span>
+                    </div>
+                    <div className="vote-meta">
+                      <span>創建者: {vote.creator.substring(0, 6)}...</span>
+                      <span>時間: {new Date(vote.timestamp * 1000).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <div className="card-footer">
+                    <button className="view-btn">查看詳情</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-          
-          <div className="votes-grid">
-            {filteredVotes.length === 0 ? (
-              <div className="no-votes">
-                <p>No voting sessions found</p>
-                <button 
-                  className="create-btn" 
-                  onClick={() => setShowCreateModal(true)}
-                >
-                  Create First Vote
-                </button>
-              </div>
-            ) : filteredVotes.map((vote, index) => (
-              <div 
-                className={`vote-card ${selectedVote?.id === vote.id ? "selected" : ""} ${vote.isVerified ? "verified" : ""}`} 
-                key={index}
-                onClick={() => setSelectedVote(vote)}
-              >
-                <div className="vote-title">{vote.title}</div>
-                <div className="vote-options">
-                  <span>Option A: {vote.publicValue1}</span>
-                  <span>Option B: {vote.publicValue2}</span>
+        )}
+        
+        {activeTab === "stats" && (
+          <div className="stats-section">
+            <h2>📊 投票數據統計</h2>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon">📈</div>
+                <div className="stat-content">
+                  <h3>總投票數</h3>
+                  <div className="stat-value">{stats.totalVotes}</div>
                 </div>
-                <div className="vote-meta">
-                  <span>Created: {new Date(vote.timestamp * 1000).toLocaleDateString()}</span>
-                  <span className={`status ${vote.isVerified ? "verified" : "pending"}`}>
-                    {vote.isVerified ? "✅ Verified" : "🔓 Pending"}
-                  </span>
-                </div>
-                <div className="vote-creator">By: {vote.creator.substring(0, 6)}...{vote.creator.substring(38)}</div>
               </div>
-            ))}
+              <div className="stat-card">
+                <div className="stat-icon">✅</div>
+                <div className="stat-content">
+                  <h3>已驗證投票</h3>
+                  <div className="stat-value">{stats.verifiedVotes}</div>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon">📅</div>
+                <div className="stat-content">
+                  <h3>今日新增</h3>
+                  <div className="stat-value">{stats.todayVotes}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="chart-section">
+              <h3>📈 驗證狀態分佈</h3>
+              <div className="chart">
+                <div className="chart-bar verified" style={{ width: `${(stats.verifiedVotes / Math.max(stats.totalVotes, 1)) * 100}%` }}>
+                  <span>已驗證: {stats.verifiedVotes}</span>
+                </div>
+                <div className="chart-bar pending" style={{ width: `${((stats.totalVotes - stats.verifiedVotes) / Math.max(stats.totalVotes, 1)) * 100}%` }}>
+                  <span>待驗證: {stats.totalVotes - stats.verifiedVotes}</span>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+        
+        {activeTab === "about" && (
+          <div className="about-section">
+            <h2>ℹ️ 項目介紹</h2>
+            <div className="about-content">
+              <div className="info-card">
+                <h3>🎯 項目願景</h3>
+                <p>為兒童提供安全、隱私的投票環境，使用FHE全同態加密技術保護投票數據，避免同伴壓力影響。</p>
+              </div>
+              <div className="info-card">
+                <h3>🔐 技術特色</h3>
+                <ul>
+                  <li>• 全同態加密保護投票隱私</li>
+                  <li>• 鏈上數據驗證確保公正性</li>
+                  <li>• 兒童友好的用戶界面設計</li>
+                  <li>• 實時數據統計和分析</li>
+                </ul>
+              </div>
+              <div className="info-card">
+                <h3>🛡️ 隱私保護</h3>
+                <p>所有投票數據在加密狀態下進行計算，只有最終結果會被解密，確保投票過程的完全隱私。</p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {activeTab === "faq" && (
+          <div className="faq-section">
+            <h2>❓ 常見問題解答</h2>
+            <div className="faq-list">
+              <div className="faq-item">
+                <h3>什麼是FHE加密？</h3>
+                <p>全同態加密允許在加密數據上直接進行計算，無需解密，極大保護數據隱私。</p>
+              </div>
+              <div className="faq-item">
+                <h3>投票數據如何保護？</h3>
+                <p>所有投票選擇在本地加密後上鏈，只有最終統計結果可被授權解密。</p>
+              </div>
+              <div className="faq-item">
+                <h3>兒童如何使用？</h3>
+                <p>通過簡單的圖形界面，兒童可以輕鬆參與投票，無需理解複雜的加密技術。</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
       
       {showCreateModal && (
         <CreateVoteModal 
@@ -542,42 +557,24 @@ const App: React.FC = () => {
       {selectedVote && (
         <VoteDetailModal 
           vote={selectedVote} 
-          onClose={() => { 
-            setSelectedVote(null); 
-            setDecryptedCount(null); 
-          }} 
-          decryptedCount={decryptedCount} 
-          isDecrypting={isDecrypting || fheIsDecrypting} 
-          decryptData={() => decryptData(selectedVote.encryptedVotes)}
-          stats={stats}
+          onClose={() => setSelectedVote(null)} 
+          isDecrypting={fheIsDecrypting} 
+          decryptVote={() => decryptVote(selectedVote.id)}
         />
       )}
       
       {transactionStatus.visible && (
-        <div className="notification">
-          <div className={`notification-content ${transactionStatus.status}`}>
-            <div className="notification-icon">
-              {transactionStatus.status === "pending" && "⏳"}
-              {transactionStatus.status === "success" && "✅"}
-              {transactionStatus.status === "error" && "❌"}
+        <div className="transaction-modal">
+          <div className="transaction-content">
+            <div className={`transaction-icon ${transactionStatus.status}`}>
+              {transactionStatus.status === "pending" && <div className="fhe-spinner"></div>}
+              {transactionStatus.status === "success" && <div className="success-icon">✓</div>}
+              {transactionStatus.status === "error" && <div className="error-icon">✗</div>}
             </div>
-            <div className="notification-message">{transactionStatus.message}</div>
+            <div className="transaction-message">{transactionStatus.message}</div>
           </div>
         </div>
       )}
-
-      <footer className="app-footer">
-        <div className="footer-content">
-          <p>🔐 KidVote FHE - Secure encrypted voting for children</p>
-          <div className="footer-links">
-            <span>Privacy Protected</span>
-            <span>•</span>
-            <span>FHE Encrypted</span>
-            <span>•</span>
-            <span>Child Safe</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 };
@@ -592,85 +589,76 @@ const CreateVoteModal: React.FC<{
 }> = ({ onSubmit, onClose, creating, voteData, setVoteData, isEncrypting }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    if (name === 'votes') {
-      const intValue = value.replace(/[^\d]/g, '');
-      setVoteData({ ...voteData, [name]: intValue });
-    } else {
-      setVoteData({ ...voteData, [name]: value });
-    }
+    setVoteData({ ...voteData, [name]: value });
   };
 
   return (
     <div className="modal-overlay">
-      <div className="create-modal">
+      <div className="create-vote-modal">
         <div className="modal-header">
-          <h2>Create New Vote</h2>
-          <button onClick={onClose} className="close-btn">×</button>
+          <h2>✨ 創建新投票</h2>
+          <button onClick={onClose} className="close-modal">&times;</button>
         </div>
         
         <div className="modal-body">
           <div className="fhe-notice">
-            <strong>🔐 FHE Encryption Active</strong>
-            <p>Vote counts will be encrypted with fully homomorphic encryption</p>
+            <strong>🔐 FHE加密保護</strong>
+            <p>投票數據將使用Zama FHE進行加密保護</p>
           </div>
           
           <div className="form-group">
-            <label>Vote Title *</label>
+            <label>投票標題 *</label>
             <input 
               type="text" 
               name="title" 
               value={voteData.title} 
               onChange={handleChange} 
-              placeholder="What are we voting on?" 
+              placeholder="輸入投票標題..." 
             />
-          </div>
-          
-          <div className="form-row">
-            <div className="form-group">
-              <label>Option A *</label>
-              <input 
-                type="text" 
-                name="optionA" 
-                value={voteData.optionA} 
-                onChange={handleChange} 
-                placeholder="First choice" 
-              />
-            </div>
-            <div className="form-group">
-              <label>Option B *</label>
-              <input 
-                type="text" 
-                name="optionB" 
-                value={voteData.optionB} 
-                onChange={handleChange} 
-                placeholder="Second choice" 
-              />
-            </div>
           </div>
           
           <div className="form-group">
-            <label>Initial Vote Count (Integer) *</label>
+            <label>選項A *</label>
             <input 
-              type="number" 
-              name="votes" 
-              value={voteData.votes} 
+              type="text" 
+              name="option1" 
+              value={voteData.option1} 
               onChange={handleChange} 
-              placeholder="Starting vote count" 
-              step="1"
-              min="0"
+              placeholder="第一個選項..." 
             />
-            <div className="input-note">FHE Encrypted Integer</div>
+          </div>
+          
+          <div className="form-group">
+            <label>選項B *</label>
+            <input 
+              type="text" 
+              name="option2" 
+              value={voteData.option2} 
+              onChange={handleChange} 
+              placeholder="第二個選項..." 
+            />
+          </div>
+          
+          <div className="form-group">
+            <label>選項C *</label>
+            <input 
+              type="text" 
+              name="option3" 
+              value={voteData.option3} 
+              onChange={handleChange} 
+              placeholder="第三個選項..." 
+            />
           </div>
         </div>
         
         <div className="modal-footer">
-          <button onClick={onClose} className="cancel-btn">Cancel</button>
+          <button onClick={onClose} className="cancel-btn">取消</button>
           <button 
             onClick={onSubmit} 
-            disabled={creating || isEncrypting || !voteData.title || !voteData.votes} 
+            disabled={creating || isEncrypting || !voteData.title || !voteData.option1} 
             className="submit-btn"
           >
-            {creating || isEncrypting ? "Encrypting..." : "Create Vote"}
+            {creating || isEncrypting ? "加密創建中..." : "創建投票"}
           </button>
         </div>
       </div>
@@ -681,137 +669,73 @@ const CreateVoteModal: React.FC<{
 const VoteDetailModal: React.FC<{
   vote: VoteData;
   onClose: () => void;
-  decryptedCount: number | null;
   isDecrypting: boolean;
-  decryptData: () => Promise<number | null>;
-  stats: VoteStats;
-}> = ({ vote, onClose, decryptedCount, isDecrypting, decryptData, stats }) => {
+  decryptVote: () => Promise<number | null>;
+}> = ({ vote, onClose, isDecrypting, decryptVote }) => {
   const handleDecrypt = async () => {
-    if (decryptedCount !== null) return;
-    await decryptData();
-  };
-
-  const renderVoteChart = () => {
-    const total = vote.publicValue1 + vote.publicValue2;
-    const optionAPercent = total > 0 ? (vote.publicValue1 / total) * 100 : 0;
-    const optionBPercent = total > 0 ? (vote.publicValue2 / total) * 100 : 0;
-
-    return (
-      <div className="vote-chart">
-        <div className="chart-title">Vote Distribution</div>
-        <div className="chart-bars">
-          <div className="chart-bar">
-            <div className="bar-label">Option A</div>
-            <div className="bar-container">
-              <div 
-                className="bar-fill option-a" 
-                style={{ width: `${optionAPercent}%` }}
-              >
-                <span className="bar-value">{vote.publicValue1}</span>
-              </div>
-            </div>
-            <div className="bar-percent">{optionAPercent.toFixed(1)}%</div>
-          </div>
-          <div className="chart-bar">
-            <div className="bar-label">Option B</div>
-            <div className="bar-container">
-              <div 
-                className="bar-fill option-b" 
-                style={{ width: `${optionBPercent}%` }}
-              >
-                <span className="bar-value">{vote.publicValue2}</span>
-              </div>
-            </div>
-            <div className="bar-percent">{optionBPercent.toFixed(1)}%</div>
-          </div>
-        </div>
-      </div>
-    );
+    await decryptVote();
   };
 
   return (
     <div className="modal-overlay">
-      <div className="detail-modal">
+      <div className="vote-detail-modal">
         <div className="modal-header">
-          <h2>Vote Details</h2>
-          <button onClick={onClose} className="close-btn">×</button>
+          <h2>🗳️ 投票詳情</h2>
+          <button onClick={onClose} className="close-modal">&times;</button>
         </div>
         
         <div className="modal-body">
           <div className="vote-info">
             <div className="info-item">
-              <span>Title:</span>
+              <span>標題:</span>
               <strong>{vote.title}</strong>
             </div>
             <div className="info-item">
-              <span>Creator:</span>
+              <span>創建者:</span>
               <strong>{vote.creator.substring(0, 6)}...{vote.creator.substring(38)}</strong>
             </div>
             <div className="info-item">
-              <span>Created:</span>
-              <strong>{new Date(vote.timestamp * 1000).toLocaleDateString()}</strong>
+              <span>創建時間:</span>
+              <strong>{new Date(vote.timestamp * 1000).toLocaleString()}</strong>
+            </div>
+          </div>
+          
+          <div className="vote-options-detailed">
+            <h3>投票選項</h3>
+            <div className="options-list">
+              <div className="option-item">A: {vote.option1}</div>
+              <div className="option-item">B: {vote.option2}</div>
+              <div className="option-item">C: {vote.option3}</div>
             </div>
           </div>
           
           <div className="encryption-section">
-            <h3>🔐 Encrypted Vote Data</h3>
-            
-            <div className="data-row">
-              <div className="data-label">Total Votes:</div>
-              <div className="data-value">
-                {vote.isVerified && vote.decryptedValue ? 
-                  `${vote.decryptedValue} (Verified)` : 
-                  decryptedCount !== null ? 
-                  `${decryptedCount} (Decrypted)` : 
-                  "🔒 Encrypted"
-                }
+            <h3>🔐 加密狀態</h3>
+            <div className="encryption-status">
+              <div className="status-item">
+                <span>數據狀態:</span>
+                <strong>{vote.isVerified ? "✅ 已驗證" : "🔒 加密中"}</strong>
               </div>
-              <button 
-                className={`decrypt-btn ${(vote.isVerified || decryptedCount !== null) ? 'decrypted' : ''}`}
-                onClick={handleDecrypt} 
-                disabled={isDecrypting || vote.isVerified}
-              >
-                {isDecrypting ? "Decrypting..." : 
-                 vote.isVerified ? "✅ Verified" : 
-                 decryptedCount !== null ? "🔓 Decrypted" : 
-                 "🔓 Decrypt"}
-              </button>
+              {vote.isVerified && vote.decryptedValue && (
+                <div className="status-item">
+                  <span>解密結果:</span>
+                  <strong>{vote.decryptedValue}</strong>
+                </div>
+              )}
             </div>
             
-            <div className="fhe-explanation">
-              <p>Votes are encrypted using FHE technology. Decryption happens offline and is verified on-chain.</p>
-            </div>
-          </div>
-          
-          {renderVoteChart()}
-          
-          <div className="vote-results">
-            <div className="result-item">
-              <span>Option A Votes:</span>
-              <strong>{vote.publicValue1}</strong>
-            </div>
-            <div className="result-item">
-              <span>Option B Votes:</span>
-              <strong>{vote.publicValue2}</strong>
-            </div>
-            <div className="result-item">
-              <span>Total Votes:</span>
-              <strong>{vote.publicValue1 + vote.publicValue2}</strong>
-            </div>
+            <button 
+              className={`decrypt-btn ${vote.isVerified ? 'decrypted' : ''}`}
+              onClick={handleDecrypt} 
+              disabled={isDecrypting}
+            >
+              {isDecrypting ? "🔓 驗證中..." : vote.isVerified ? "✅ 已驗證" : "🔓 驗證解密"}
+            </button>
           </div>
         </div>
         
         <div className="modal-footer">
-          <button onClick={onClose} className="close-btn">Close</button>
-          {!vote.isVerified && (
-            <button 
-              onClick={handleDecrypt} 
-              disabled={isDecrypting}
-              className="verify-btn"
-            >
-              {isDecrypting ? "Verifying..." : "Verify on-chain"}
-            </button>
-          )}
+          <button onClick={onClose} className="close-btn">關閉</button>
         </div>
       </div>
     </div>
